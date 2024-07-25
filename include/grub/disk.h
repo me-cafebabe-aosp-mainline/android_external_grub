@@ -230,7 +230,7 @@ grub_disk_to_native_sector (grub_disk_t disk, grub_disk_addr_t sector)
 }
 
 /* This is called from the memory manager.  */
-void grub_disk_cache_invalidate_all (void);
+void EXPORT_FUNC(grub_disk_cache_invalidate_all) (void);
 
 void EXPORT_FUNC(grub_disk_dev_register) (grub_disk_dev_t dev);
 void EXPORT_FUNC(grub_disk_dev_unregister) (grub_disk_dev_t dev);

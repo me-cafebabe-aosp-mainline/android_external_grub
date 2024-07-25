@@ -2611,3 +2611,8 @@ module = {
   enable = efi;
   depends = part_gpt;
 };
+
+module = {
+  name = wipe;
+  common = commands/wipe.c;
+};
