@@ -439,6 +439,67 @@ args_to_eat (const char *arg)
   return 0;
 }
 
+/*
+ * Prebuilt GRUB trees may be laid out as <root>/<platform>/lib/grub/<platform>,
+ * one tree per platform. When the x86 platform directory of such a layout is
+ * given with --directory, also use the other x86 platforms that live next to
+ * it, so that the image boots on 32-bit UEFI firmware and on BIOS as well.
+ */
+static void
+add_sibling_platforms (enum grub_install_plat plat, const char *source_dir,
+		       const char *dest_dir)
+{
+  static const enum grub_install_plat x86_platforms[] = {
+      GRUB_INSTALL_PLATFORM_I386_PC,
+      GRUB_INSTALL_PLATFORM_I386_EFI,
+      GRUB_INSTALL_PLATFORM_X86_64_EFI,
+  };
+  const char *name = grub_install_get_platform_name (plat);
+  char *dir, *suffix;
+  size_t len, suffix_len, i;
+
+  for (i = 0; i < ARRAY_SIZE (x86_platforms); i++)
+    if (x86_platforms[i] == plat)
+      break;
+  if (i == ARRAY_SIZE (x86_platforms))
+    return;
+
+  dir = xstrdup (source_dir);
+  len = strlen (dir);
+  while (len > 1 && dir[len - 1] == '/')
+    dir[--len] = '\0';
+
+  suffix = xasprintf ("/%s/lib/grub/%s", name, name);
+  suffix_len = strlen (suffix);
+  if (len > suffix_len && strcmp (dir + len - suffix_len, suffix) == 0)
+    {
+      dir[len - suffix_len] = '\0';
+
+      for (i = 0; i < ARRAY_SIZE (x86_platforms); i++)
+	{
+	  enum grub_install_plat sibling = x86_platforms[i];
+	  const char *sibling_name = grub_install_get_platform_name (sibling);
+	  char *sibling_dir;
+
+	  if (source_dirs[sibling])
+	    continue;
+
+	  sibling_dir = grub_util_path_concat (5, dir, sibling_name, "lib",
+					       "grub", sibling_name);
+	  if (!grub_util_is_directory (sibling_dir))
+	    {
+	      free (sibling_dir);
+	      continue;
+	    }
+	  source_dirs[sibling] = sibling_dir;
+	  grub_install_copy_files (sibling_dir, dest_dir, sibling);
+	}
+    }
+
+  free (suffix);
+  free (dir);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -553,6 +614,7 @@ main (int argc, char *argv[])
       grub_install_copy_files (grub_install_source_directory,
 			       boot_grub, plat);
       source_dirs[plat] = xstrdup (grub_install_source_directory);
+      add_sibling_platforms (plat, grub_install_source_directory, boot_grub);
     }
 
   grub_set_install_backup_ponr ();
