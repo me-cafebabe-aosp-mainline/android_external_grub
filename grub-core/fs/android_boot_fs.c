@@ -1,5 +1,6 @@
 #include <grub/misc.h>
 #include <grub/disk.h>
+#include <grub/env.h>
 #include <grub/file.h>
 #include <grub/mm.h>
 #include <grub/dl.h>
@@ -113,6 +114,7 @@ const char* android_boot_img_component_filename[COMPONENT_COUNT] = {
 };
 
 struct android_boot_file_data {
+  grub_disk_t disk;
   enum android_boot_img_component component;
 };
 
@@ -287,28 +289,86 @@ proceed:
 
 report:
   data->component = i;
+  data->disk = file->device->disk;
   file->data = data;
   file->not_easily_seekable = 0;
   file->offset = 0;
   return GRUB_ERR_NONE;
 }
+#undef CHECK_SIZE_AND_REPORT
 
 /* Read */
 static grub_ssize_t
 android_boot_read(grub_file_t file, char* buf, grub_size_t len) {
-  struct android_boot_img_data* data = file->data;
+  struct android_boot_file_data* data = file->data;
+  union boot_img_hdr_union hdr;
+  grub_uint32_t page_size = 0;
+  grub_uint64_t offset = 0;
+  const char* tmp;
 
-  grub_uint64_t file_offset
-      = data->components[data->cur_component].offset + file->offset;
-  data->disk->read_hook = file->read_hook;
-  data->disk->read_hook_data = file->read_hook_data;
-
-  if (grub_disk_read(data->disk, 0, file_offset, len, buf)) {
-    data->disk->read_hook = 0;
+  if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr)) {
+    grub_error(GRUB_ERR_READ_ERROR, "Failed to load boot image header from disk");
     return -1;
   }
 
-  data->disk->read_hook = 0;
+  if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
+    if (hdr.v0.header_version <= 2) {
+      offset = page_size = hdr.v0.page_size;
+
+      // kernel
+      if (data->component == COMPONENT_KERNEL) goto read;
+      offset += ALIGN_UP(hdr.v0.kernel_size, page_size);
+
+      // ramdisk
+      if (data->component == COMPONENT_RAMDISK) goto read;
+      offset += ALIGN_UP(hdr.v0.ramdisk_size, page_size);
+
+      // second (optional)
+      if (data->component == COMPONENT_SECOND) goto read;
+      offset += ALIGN_UP(hdr.v0.second_size, page_size);
+
+      if (hdr.v0.header_version >= 1) {
+        // recovery dtbo
+        if (data->component == COMPONENT_RECOVERY_DTBO) goto read;
+        offset += ALIGN_UP(hdr.v1.recovery_dtbo_size, page_size);
+      }
+
+      if (hdr.v0.header_version >= 2) {
+        // dtb
+        if (data->component == COMPONENT_DTB) goto read;
+        offset += ALIGN_UP(hdr.v2.dtb_size, page_size);
+      }
+    } else if (hdr.v3.header_version <= 4) {
+      offset = 4096;
+
+      tmp = grub_env_get("android_boot_img_page_size");
+      if (tmp)
+        page_size = grub_strtoull(tmp, 0, 0);
+      if (!tmp || !page_size) {
+        grub_error(GRUB_ERR_BAD_ARGUMENT, "Unable to get android boot image page size from env");
+        return -1;
+      }
+
+      // kernel
+      if (data->component == COMPONENT_KERNEL) goto read;
+      offset += ALIGN_UP(hdr.v0.kernel_size, page_size);
+
+      // ramdisk
+      if (data->component == COMPONENT_RAMDISK) goto read;
+      offset += ALIGN_UP(hdr.v0.ramdisk_size, page_size);
+    }
+  } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
+    // TODO
+  } else {
+    grub_error(GRUB_ERR_UNKNOWN_FS, "Invalid Android boot image magic");
+    return 1;
+  }
+
+read:
+  if (grub_disk_read(data->disk, 0, offset, len, buf)) {
+    grub_error(GRUB_ERR_FILE_READ_ERROR, "Failed to read offset %lu from android boot image", offset);
+    return 1;
+  }
   return (grub_ssize_t)len;
 }
 
