@@ -131,7 +131,7 @@ android_boot_dir(grub_device_t device,
   union boot_img_hdr_union hdr;
 
   if (grub_disk_read(device->disk, 0, 0, sizeof(hdr), &hdr))
-    return GRUB_ERR_NONE;
+    return grub_errno;
 
   if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
     switch (hdr.v0.header_version) {
@@ -180,7 +180,7 @@ android_boot_open(grub_file_t file, const char* path) {
       goto proceed;
     }
   }
-  return grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s is unsupported", path);
+  return grub_errno;
 
 proceed:
   if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr))
