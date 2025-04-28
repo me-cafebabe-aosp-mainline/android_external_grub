@@ -84,13 +84,6 @@ struct android_boot_img_data
   struct component_info components[COMPONENT_COUNT];
 };
 
-/* Utility: align up to page boundary */
-static grub_uint64_t
-align_to_page(grub_uint64_t val, grub_uint32_t page_size)
-{
-  return ((val + page_size - 1) / page_size) * page_size;
-}
-
 /* Mount (parse header) */
 static struct android_boot_img_data *
 android_boot_mount(grub_disk_t disk)
@@ -120,19 +113,19 @@ android_boot_mount(grub_disk_t disk)
   data->components[COMPONENT_KERNEL].name = "kernel";
   data->components[COMPONENT_KERNEL].offset = offset;
   data->components[COMPONENT_KERNEL].size = hdr.v0.kernel_size;
-  offset += align_to_page(hdr.v0.kernel_size, hdr.v0.page_size);
+  offset += ALIGN_UP(hdr.v0.kernel_size, hdr.v0.page_size);
 
   /* Ramdisk */
   data->components[COMPONENT_RAMDISK].name = "ramdisk";
   data->components[COMPONENT_RAMDISK].offset = offset;
   data->components[COMPONENT_RAMDISK].size = hdr.v0.ramdisk_size;
-  offset += align_to_page(hdr.v0.ramdisk_size, hdr.v0.page_size);
+  offset += ALIGN_UP(hdr.v0.ramdisk_size, hdr.v0.page_size);
 
   /* Second stage (optional) */
   data->components[COMPONENT_SECOND].name = "second";
   data->components[COMPONENT_SECOND].offset = offset;
   data->components[COMPONENT_SECOND].size = hdr.v0.second_size;
-  offset += align_to_page(hdr.v0.second_size, hdr.v0.page_size);
+  offset += ALIGN_UP(hdr.v0.second_size, hdr.v0.page_size);
 
   /* Recovery DTBO (only if v1+) */
   if (hdr.v0.header_version >= 1 && hdr.v1.recovery_dtbo_size)
