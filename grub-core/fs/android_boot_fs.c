@@ -112,6 +112,10 @@ const char* android_boot_img_component_filename[COMPONENT_COUNT] = {
   [COMPONENT_DTB] = "dtb",
 };
 
+struct android_boot_file_data {
+  enum android_boot_img_component component;
+};
+
 struct component_info {
   grub_uint64_t offset;
   grub_uint32_t size;
@@ -179,9 +183,9 @@ android_boot_mount(grub_disk_t disk) {
 }
 
 /* Directory listing */
-#define CHECK_AND_ADD(check, component) \
+#define CHECK_SIZE_AND_REPORT(in_size, component) \
   grub_memset(&info, 0, sizeof(info)); \
-  if (hdr.check) \
+  if (hdr.in_size) \
     hook(android_boot_img_component_filename[component], &info, hook_data);
 static grub_err_t
 android_boot_dir(grub_device_t device,
@@ -196,21 +200,21 @@ android_boot_dir(grub_device_t device,
   if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
     switch (hdr.v0.header_version) {
       case 2:
-        CHECK_AND_ADD(v2.dtb_size, COMPONENT_DTB)
+        CHECK_SIZE_AND_REPORT(v2.dtb_size, COMPONENT_DTB)
         [[fallthrough]];
       case 1:
-        CHECK_AND_ADD(v1.recovery_dtbo_size, COMPONENT_RECOVERY_DTBO)
+        CHECK_SIZE_AND_REPORT(v1.recovery_dtbo_size, COMPONENT_RECOVERY_DTBO)
         [[fallthrough]];
       case 0:
-        CHECK_AND_ADD(v0.kernel_size, COMPONENT_KERNEL)
-        CHECK_AND_ADD(v0.ramdisk_size, COMPONENT_RAMDISK)
-        CHECK_AND_ADD(v0.second_size, COMPONENT_SECOND)
+        CHECK_SIZE_AND_REPORT(v0.kernel_size, COMPONENT_KERNEL)
+        CHECK_SIZE_AND_REPORT(v0.ramdisk_size, COMPONENT_RAMDISK)
+        CHECK_SIZE_AND_REPORT(v0.second_size, COMPONENT_SECOND)
         break;
       case 4:
         [[fallthrough]];
       case 3:
-        CHECK_AND_ADD(v3.kernel_size, COMPONENT_KERNEL)
-        CHECK_AND_ADD(v3.ramdisk_size, COMPONENT_RAMDISK)
+        CHECK_SIZE_AND_REPORT(v3.kernel_size, COMPONENT_KERNEL)
+        CHECK_SIZE_AND_REPORT(v3.ramdisk_size, COMPONENT_RAMDISK)
         break;
     default:
         return grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
@@ -223,33 +227,70 @@ android_boot_dir(grub_device_t device,
 
   return GRUB_ERR_NONE;
 }
-#undef CHECK_AND_ADD
+#undef CHECK_SIZE_AND_REPORT
 
 /* Open a file */
+#define CHECK_SIZE_AND_REPORT(in_size, component) \
+  if (i == component && hdr.in_size) { \
+    file->size = hdr.in_size; \
+    goto report; \
+  }
 static grub_err_t
 android_boot_open(grub_file_t file, const char* path) {
-  struct android_boot_img_data* data;
-  unsigned i;
-
-  data = android_boot_mount(file->device->disk);
-  if (!data)
-    return grub_errno;
+  struct android_boot_file_data* data;
+  unsigned int i;
+  union boot_img_hdr_union hdr;
 
   for (i = 0; i < COMPONENT_COUNT; i++) {
-    if (data->components[i].size > 0
-        && grub_strcmp(path + 1, android_boot_img_component_filename[i]) == 0) {
-      data->cur_component = i;
-      file->size = data->components[i].size;
-      file->offset = 0;
-      file->data = data;
-      file->not_easily_seekable = 0;
-      return GRUB_ERR_NONE;
+    if (!grub_strcmp(path + 1, android_boot_img_component_filename[i])) {
+      goto proceed;
     }
   }
+  return grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s is unsupported", path);
 
-  grub_free(data);
+proceed:
+  if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr))
+    return grub_error(GRUB_ERR_READ_ERROR, "Failed to load boot image header from disk");
+
+  data = grub_zalloc(sizeof(*data));
+  if (!data)
+    return grub_error(GRUB_ERR_OUT_OF_MEMORY, "Unable to allocate memory");
+
+  if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
+    switch (hdr.v0.header_version) {
+      case 2:
+        CHECK_SIZE_AND_REPORT(v2.dtb_size, COMPONENT_DTB)
+        [[fallthrough]];
+      case 1:
+        CHECK_SIZE_AND_REPORT(v1.recovery_dtbo_size, COMPONENT_RECOVERY_DTBO)
+        [[fallthrough]];
+      case 0:
+        CHECK_SIZE_AND_REPORT(v0.kernel_size, COMPONENT_KERNEL)
+        CHECK_SIZE_AND_REPORT(v0.ramdisk_size, COMPONENT_RAMDISK)
+        CHECK_SIZE_AND_REPORT(v0.second_size, COMPONENT_SECOND)
+        break;
+      case 4:
+        [[fallthrough]];
+      case 3:
+        CHECK_SIZE_AND_REPORT(v3.kernel_size, COMPONENT_KERNEL)
+        CHECK_SIZE_AND_REPORT(v3.ramdisk_size, COMPONENT_RAMDISK)
+        break;
+    default:
+        return grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
+    }
+  } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
+    // TODO
+  }
+
   return grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s not found in boot image",
-                    path);
+    path);
+
+report:
+  data->component = i;
+  file->data = data;
+  file->not_easily_seekable = 0;
+  file->offset = 0;
+  return GRUB_ERR_NONE;
 }
 
 /* Read */
