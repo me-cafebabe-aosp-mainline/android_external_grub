@@ -81,6 +81,7 @@ struct android_boot_img_data
 {
   grub_disk_t disk;
   grub_uint32_t page_size;
+  enum android_boot_img_component cur_component;
   struct component_info components[COMPONENT_COUNT];
 };
 
@@ -185,8 +186,9 @@ android_boot_open(grub_file_t file, const char *path)
   for (i = 0; i < COMPONENT_COUNT; i++)
     {
       if (data->components[i].size > 0 &&
-          grub_strcmp(path, data->components[i].name) == 0)
+          grub_strcmp(path + 1, data->components[i].name) == 0)
         {
+          data->cur_component = i;
           file->size = data->components[i].size;
           file->offset = 0;
           file->data = data;
@@ -196,7 +198,7 @@ android_boot_open(grub_file_t file, const char *path)
     }
 
   grub_free(data);
-  return grub_error(GRUB_ERR_FILE_NOT_FOUND, "File not found in boot image");
+  return grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s not found in boot image", path);
 }
 
 /* Read */
@@ -204,28 +206,19 @@ static grub_ssize_t
 android_boot_read(grub_file_t file, char *buf, grub_size_t len)
 {
   struct android_boot_img_data *data = file->data;
-  unsigned i;
 
-  for (i = 0; i < COMPONENT_COUNT; i++)
+  grub_uint64_t file_offset = data->components[data->cur_component].offset + file->offset;
+  data->disk->read_hook = file->read_hook;
+  data->disk->read_hook_data = file->read_hook_data;
+
+  if (grub_disk_read(data->disk, 0, file_offset, len, buf))
     {
-      if (grub_strcmp(file->name, data->components[i].name) == 0)
-        {
-          grub_uint64_t file_offset = data->components[i].offset + file->offset;
-          data->disk->read_hook = file->read_hook;
-          data->disk->read_hook_data = file->read_hook_data;
-
-          if (grub_disk_read(data->disk, 0, file_offset, len, buf))
-            {
-              data->disk->read_hook = 0;
-              return -1;
-            }
-
-          data->disk->read_hook = 0;
-          return (grub_ssize_t) len;
-        }
+      data->disk->read_hook = 0;
+      return -1;
     }
 
-  return -1;
+  data->disk->read_hook = 0;
+  return (grub_ssize_t) len;
 }
 
 /* Close */
