@@ -54,6 +54,12 @@ struct boot_img_hdr_v2
   grub_uint64_t dtb_addr;
 } __attribute__((packed));
 
+union boot_img_hdr_v0_v1_v2 {
+  struct boot_img_hdr_v0 v0;
+  struct boot_img_hdr_v1 v1;
+  struct boot_img_hdr_v2 v2;
+} __attribute__((packed));
+
 enum android_boot_img_component
 {
   COMPONENT_KERNEL = 0,
@@ -90,7 +96,7 @@ static struct android_boot_img_data *
 android_boot_mount(grub_disk_t disk)
 {
   struct android_boot_img_data *data;
-  struct boot_img_hdr_v2 hdr;
+  union boot_img_hdr_v0_v1_v2 hdr;
 
   if (grub_disk_read(disk, 0, 0, sizeof(hdr), &hdr))
     return NULL;
@@ -149,7 +155,7 @@ android_boot_mount(grub_disk_t disk)
 
 /* Directory listing */
 static grub_err_t
-android_boot_dir(grub_device_t device, const char *path,
+android_boot_dir(grub_device_t device, const char *path __attribute__((unused)),
                  grub_fs_dir_hook_t hook, void *hook_data)
 {
   struct android_boot_img_data *data;
@@ -209,7 +215,7 @@ android_boot_read(grub_file_t file, char *buf, grub_size_t len)
 
   for (i = 0; i < COMPONENT_COUNT; i++)
     {
-      if (grub_strcmp(file->path, data->components[i].name) == 0)
+      if (grub_strcmp(file->name, data->components[i].name) == 0)
         {
           grub_uint64_t file_offset = data->components[i].offset + file->offset;
           data->disk->read_hook = file->read_hook;
