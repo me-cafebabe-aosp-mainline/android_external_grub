@@ -66,8 +66,15 @@ enum android_boot_img_component {
   COMPONENT_COUNT
 };
 
+const char* android_boot_img_component_filename[COMPONENT_COUNT] = {
+  [COMPONENT_KERNEL] = "kernel",
+  [COMPONENT_RAMDISK] = "ramdisk.img",
+  [COMPONENT_SECOND] = "second",
+  [COMPONENT_RECOVERY_DTBO] = "recovery_dtbo",
+  [COMPONENT_DTB] = "dtb",
+};
+
 struct component_info {
-  const char* name;
   grub_uint64_t offset;
   grub_uint32_t size;
 };
@@ -103,26 +110,22 @@ android_boot_mount(grub_disk_t disk) {
   grub_uint64_t offset = data->page_size;
 
   /* Kernel */
-  data->components[COMPONENT_KERNEL].name = "kernel";
   data->components[COMPONENT_KERNEL].offset = offset;
   data->components[COMPONENT_KERNEL].size = hdr.v0.kernel_size;
   offset += ALIGN_UP(hdr.v0.kernel_size, hdr.v0.page_size);
 
   /* Ramdisk */
-  data->components[COMPONENT_RAMDISK].name = "ramdisk";
   data->components[COMPONENT_RAMDISK].offset = offset;
   data->components[COMPONENT_RAMDISK].size = hdr.v0.ramdisk_size;
   offset += ALIGN_UP(hdr.v0.ramdisk_size, hdr.v0.page_size);
 
   /* Second stage (optional) */
-  data->components[COMPONENT_SECOND].name = "second";
   data->components[COMPONENT_SECOND].offset = offset;
   data->components[COMPONENT_SECOND].size = hdr.v0.second_size;
   offset += ALIGN_UP(hdr.v0.second_size, hdr.v0.page_size);
 
   /* Recovery DTBO (only if v1+) */
   if (hdr.v0.header_version >= 1 && hdr.v1.recovery_dtbo_size) {
-    data->components[COMPONENT_RECOVERY_DTBO].name = "recovery_dtbo";
     data->components[COMPONENT_RECOVERY_DTBO].offset
         = hdr.v1.recovery_dtbo_offset;
     data->components[COMPONENT_RECOVERY_DTBO].size = hdr.v1.recovery_dtbo_size;
@@ -130,7 +133,6 @@ android_boot_mount(grub_disk_t disk) {
 
   /* DTB (only if v2+) */
   if (hdr.v0.header_version >= 2 && hdr.v2.dtb_size) {
-    data->components[COMPONENT_DTB].name = "dtb";
     data->components[COMPONENT_DTB].offset = offset;
     data->components[COMPONENT_DTB].size = hdr.v2.dtb_size;
   }
@@ -155,7 +157,7 @@ android_boot_dir(grub_device_t device,
     struct grub_dirhook_info info;
     grub_memset(&info, 0, sizeof(info));
     if (data->components[i].size > 0)
-      hook(data->components[i].name, &info, hook_data);
+      hook(android_boot_img_component_filename[i], &info, hook_data);
   }
 
   grub_free(data);
@@ -174,7 +176,7 @@ android_boot_open(grub_file_t file, const char* path) {
 
   for (i = 0; i < COMPONENT_COUNT; i++) {
     if (data->components[i].size > 0
-        && grub_strcmp(path + 1, data->components[i].name) == 0) {
+        && grub_strcmp(path + 1, android_boot_img_component_filename[i]) == 0) {
       data->cur_component = i;
       file->size = data->components[i].size;
       file->offset = 0;
