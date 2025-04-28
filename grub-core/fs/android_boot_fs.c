@@ -130,8 +130,11 @@ android_boot_dir(grub_device_t device,
   struct grub_dirhook_info info;
   union boot_img_hdr_union hdr;
 
-  if (grub_disk_read(device->disk, 0, 0, sizeof(hdr), &hdr))
+  if (grub_disk_read(device->disk, 0, 0, sizeof(hdr), &hdr)) {
+    grub_printf("%s: %d\n", __func__, __LINE__);
+    grub_error(GRUB_ERR_BAD_FS, "Failed to load boot image header from disk");
     return grub_errno;
+  }
 
   if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
     switch (hdr.v0.header_version) {
@@ -153,10 +156,16 @@ android_boot_dir(grub_device_t device,
         CHECK_SIZE_AND_REPORT(v3.ramdisk_size, COMPONENT_RAMDISK)
         break;
     default:
-        return grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
+        grub_printf("%s: %d\n", __func__, __LINE__);
+        grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
+        return grub_errno;
     }
   } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
     // TODO
+  } else {
+    grub_printf("%s: %d - %s\n", __func__, __LINE__, hdr.v0.magic);
+    grub_error(GRUB_ERR_BAD_FS, "Not Android boot image");
+    return grub_errno;
   }
 
   return GRUB_ERR_NONE;
@@ -175,21 +184,30 @@ android_boot_open(grub_file_t file, const char* path) {
   unsigned int i;
   union boot_img_hdr_union hdr;
 
-  for (i = 0; i < COMPONENT_COUNT; i++) {
-    if (!grub_strcmp(path + 1, android_boot_img_component_filename[i])) {
-      goto proceed;
-    }
+  if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr)) {
+    grub_printf("%s: %d\n", __func__, __LINE__);
+    grub_error(GRUB_ERR_BAD_FS, "Failed to load boot image header from disk");
+    return grub_errno;
   }
-  return grub_errno;
+
+  if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0 ||
+      grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
+    for (i = 0; i < COMPONENT_COUNT; i++) {
+      grub_printf("%d,%s,%s\n", i, path + 1, android_boot_img_component_filename[i]);
+      if (!grub_strcmp(path + 1, android_boot_img_component_filename[i])) {
+        goto proceed;
+      }
+    }
+    grub_printf("%s: %d\n", __func__, __LINE__);
+    grub_error(GRUB_ERR_BAD_FS, "Path %s is not supported", path);
+    return grub_errno;
+  } else {
+    grub_printf("%s: %d\n", __func__, __LINE__);
+    grub_error(GRUB_ERR_BAD_FS, "Not Android boot image");
+    return grub_errno;
+  }
 
 proceed:
-  if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr))
-    return grub_error(GRUB_ERR_READ_ERROR, "Failed to load boot image header from disk");
-
-  data = grub_zalloc(sizeof(*data));
-  if (!data)
-    return grub_error(GRUB_ERR_OUT_OF_MEMORY, "Unable to allocate memory");
-
   if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
     switch (hdr.v0.header_version) {
       case 2:
@@ -210,16 +228,25 @@ proceed:
         CHECK_SIZE_AND_REPORT(v3.ramdisk_size, COMPONENT_RAMDISK)
         break;
     default:
-        return grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
+        grub_printf("%s: %d\n", __func__, __LINE__);
+        grub_error(GRUB_ERR_BAD_FS, "Unhandled Android boot header version");
+        return grub_errno;
     }
   } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
     // TODO
   }
 
-  return grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s not found in boot image",
-    path);
+  grub_printf("%s: %d\n", __func__, __LINE__);
+  grub_error(GRUB_ERR_FILE_NOT_FOUND, "Path %s not found in boot image", path);
+  return grub_errno;
 
 report:
+  data = grub_zalloc(sizeof(*data));
+  if (!data) {
+    grub_printf("%s: %d\n", __func__, __LINE__);
+    grub_error(GRUB_ERR_BAD_FS, "Unable to allocate memory");
+    return grub_errno;
+  }
   data->component = i;
   data->disk = file->device->disk;
   file->data = data;
@@ -239,6 +266,7 @@ android_boot_read(grub_file_t file, char* buf, grub_size_t len) {
   const char* tmp;
 
   if (grub_disk_read(file->device->disk, 0, 0, sizeof(hdr), &hdr)) {
+    grub_printf("%s: %d\n", __func__, __LINE__);
     grub_error(GRUB_ERR_READ_ERROR, "Failed to load boot image header from disk");
     return -1;
   }
@@ -277,6 +305,7 @@ android_boot_read(grub_file_t file, char* buf, grub_size_t len) {
       if (tmp)
         page_size = grub_strtoull(tmp, 0, 0);
       if (!tmp || !page_size) {
+        grub_printf("%s: %d\n", __func__, __LINE__);
         grub_error(GRUB_ERR_BAD_ARGUMENT, "Unable to get android boot image page size from env");
         return -1;
       }
@@ -292,14 +321,16 @@ android_boot_read(grub_file_t file, char* buf, grub_size_t len) {
   } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
     // TODO
   } else {
+    grub_printf("%s: %d\n", __func__, __LINE__);
     grub_error(GRUB_ERR_UNKNOWN_FS, "Invalid Android boot image magic");
     return 1;
   }
 
 read:
   if (grub_disk_read(data->disk, 0, offset, len, buf)) {
+    grub_printf("%s: %d\n", __func__, __LINE__);
     grub_error(GRUB_ERR_FILE_READ_ERROR, "Failed to read offset %lu from android boot image", offset);
-    return 1;
+    return -1;
   }
   return (grub_ssize_t)len;
 }
