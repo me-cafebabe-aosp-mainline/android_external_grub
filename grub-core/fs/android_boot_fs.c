@@ -131,7 +131,7 @@ android_boot_dir(grub_device_t device,
   union boot_img_hdr_union hdr;
 
   if (grub_disk_read(device->disk, 0, 0, sizeof(hdr), &hdr))
-    return grub_error(GRUB_ERR_READ_ERROR, "Failed to load boot image header from disk");
+    return GRUB_ERR_NONE;
 
   if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) == 0) {
     switch (hdr.v0.header_version) {
@@ -157,8 +157,6 @@ android_boot_dir(grub_device_t device,
     }
   } else if (grub_memcmp(hdr.v0.magic, VENDOR_BOOT_MAGIC, VENDOR_BOOT_MAGIC_SIZE) == 0) {
     // TODO
-  } else {
-    return grub_error(GRUB_ERR_UNKNOWN_FS, "Invalid Android boot image magic");
   }
 
   return GRUB_ERR_NONE;
