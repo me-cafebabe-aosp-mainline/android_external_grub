@@ -118,72 +118,6 @@ struct android_boot_file_data {
   enum android_boot_img_component component;
 };
 
-struct component_info {
-  grub_uint64_t offset;
-  grub_uint32_t size;
-};
-
-struct android_boot_img_data {
-  grub_disk_t disk;
-  grub_uint32_t page_size;
-  enum android_boot_img_component cur_component;
-  struct component_info components[COMPONENT_COUNT];
-};
-
-/* Mount (parse header) */
-static struct android_boot_img_data*
-android_boot_mount(grub_disk_t disk) {
-  struct android_boot_img_data* data;
-  union boot_img_hdr_union hdr;
-
-  if (grub_disk_read(disk, 0, 0, sizeof(hdr), &hdr))
-    return NULL;
-
-  if (grub_memcmp(hdr.v0.magic, BOOT_MAGIC, BOOT_MAGIC_SIZE) != 0) {
-    grub_error(GRUB_ERR_BAD_FS, "Invalid Android boot image magic");
-    return NULL;
-  }
-
-  data = grub_zalloc(sizeof(*data));
-  if (!data)
-    return NULL;
-
-  data->disk = disk;
-  data->page_size = hdr.v0.page_size;
-
-  grub_uint64_t offset = data->page_size;
-
-  /* Kernel */
-  data->components[COMPONENT_KERNEL].offset = offset;
-  data->components[COMPONENT_KERNEL].size = hdr.v0.kernel_size;
-  offset += ALIGN_UP(hdr.v0.kernel_size, hdr.v0.page_size);
-
-  /* Ramdisk */
-  data->components[COMPONENT_RAMDISK].offset = offset;
-  data->components[COMPONENT_RAMDISK].size = hdr.v0.ramdisk_size;
-  offset += ALIGN_UP(hdr.v0.ramdisk_size, hdr.v0.page_size);
-
-  /* Second stage (optional) */
-  data->components[COMPONENT_SECOND].offset = offset;
-  data->components[COMPONENT_SECOND].size = hdr.v0.second_size;
-  offset += ALIGN_UP(hdr.v0.second_size, hdr.v0.page_size);
-
-  /* Recovery DTBO (only if v1+) */
-  if (hdr.v0.header_version >= 1 && hdr.v1.recovery_dtbo_size) {
-    data->components[COMPONENT_RECOVERY_DTBO].offset
-        = hdr.v1.recovery_dtbo_offset;
-    data->components[COMPONENT_RECOVERY_DTBO].size = hdr.v1.recovery_dtbo_size;
-  }
-
-  /* DTB (only if v2+) */
-  if (hdr.v0.header_version >= 2 && hdr.v2.dtb_size) {
-    data->components[COMPONENT_DTB].offset = offset;
-    data->components[COMPONENT_DTB].size = hdr.v2.dtb_size;
-  }
-
-  return data;
-}
-
 /* Directory listing */
 #define CHECK_SIZE_AND_REPORT(in_size, component) \
   grub_memset(&info, 0, sizeof(info)); \
@@ -341,7 +275,7 @@ android_boot_read(grub_file_t file, char* buf, grub_size_t len) {
     } else if (hdr.v3.header_version <= 4) {
       offset = 4096;
 
-      tmp = grub_env_get("android_boot_img_page_size");
+      tmp = grub_env_get("android_boot_img_vendor_page_size");
       if (tmp)
         page_size = grub_strtoull(tmp, 0, 0);
       if (!tmp || !page_size) {
