@@ -1,0 +1,25 @@
+# Approximates the GNU coding style used by the GRUB source code (tabs for
+# 8-column indentation, 2 spaces per level, GNU braces, a space before every
+# opening parenthesis, return types on their own line).
+#
+# The upstream code is not entirely consistent, so do not reformat whole
+# upstream files with this. Use it on new files, or on changed lines only
+# (git clang-format).
+BasedOnStyle: GNU
+UseTab: Always
+TabWidth: 8
+IndentWidth: 2
+ColumnLimit: 79
+SortIncludes: Never
+ReflowComments: Never
+AlignAfterOpenBracket: Align
+BinPackArguments: true
+BinPackParameters: true
+PenaltyBreakBeforeFirstCallParameter: 100000
+Cpp11BracedListStyle: true
+SpaceAfterLogicalNot: false
+SpaceBeforeParens: Always
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
