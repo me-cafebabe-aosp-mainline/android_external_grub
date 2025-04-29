@@ -277,9 +277,15 @@ widthspec.bin
 /texinfo.tex
 /udf_test
 /uhci_test
-/util/bash-completion.d/grub
+/util/bash-completion.d/grub*
 /widthspec.h
 /xfs_test
 /xzcompress_test
 /zfs_test
 /zfs_zstd_test
+
+/25_bli
+/grub-core/gdb_helper.py
+/grub-core/syminfo.lst.new
+/grub-shell-luks-tester
+/tmpwrk*/
