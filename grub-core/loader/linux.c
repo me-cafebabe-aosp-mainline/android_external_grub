@@ -38,6 +38,21 @@ struct dir
   struct dir *child;
 };
 
+/*
+ * Padding between the initrd components to 4 bytes is optional. This does not
+ * affect the padding inside of the cpio headers that we generate.
+ */
+static int initrd_no_align_up;
+
+grub_err_t
+grub_initrd_no_align_up (int argc, char *argv[])
+{
+  initrd_no_align_up = !(argc >= 1
+			 && (grub_strcmp (argv[0], "false") == 0
+			     || grub_strcmp (argv[0], "0") == 0));
+  return GRUB_ERR_NONE;
+}
+
 static char
 hex (grub_uint8_t val)
 {
@@ -183,7 +198,8 @@ grub_initrd_init (int argc, char *argv[],
     {
       const char *fname = argv[i];
 
-      initrd_ctx->size = ALIGN_UP (initrd_ctx->size, 4);
+      if (!initrd_no_align_up)
+	initrd_ctx->size = ALIGN_UP (initrd_ctx->size, 4);
 
       if (grub_memcmp (argv[i], "newc:", 5) == 0)
 	{
@@ -243,7 +259,8 @@ grub_initrd_init (int argc, char *argv[],
 
   if (newc)
     {
-      initrd_ctx->size = ALIGN_UP (initrd_ctx->size, 4);
+      if (!initrd_no_align_up)
+	initrd_ctx->size = ALIGN_UP (initrd_ctx->size, 4);
       if (grub_add (initrd_ctx->size,
 		    ALIGN_UP (sizeof (struct newc_head)
 			      + sizeof ("TRAILER!!!"), 4),
@@ -294,8 +311,11 @@ grub_initrd_load (struct grub_linux_initrd_context *initrd_ctx,
 
   for (i = 0; i < initrd_ctx->nfiles; i++)
     {
-      grub_memset (ptr, 0, ALIGN_UP_OVERHEAD (cursize, 4));
-      ptr += ALIGN_UP_OVERHEAD (cursize, 4);
+      if (!initrd_no_align_up)
+	{
+	  grub_memset (ptr, 0, ALIGN_UP_OVERHEAD (cursize, 4));
+	  ptr += ALIGN_UP_OVERHEAD (cursize, 4);
+	}
 
       if (initrd_ctx->components[i].newc_name)
 	{
@@ -338,8 +358,11 @@ grub_initrd_load (struct grub_linux_initrd_context *initrd_ctx,
     }
   if (newc)
     {
-      grub_memset (ptr, 0, ALIGN_UP_OVERHEAD (cursize, 4));
-      ptr += ALIGN_UP_OVERHEAD (cursize, 4);
+      if (!initrd_no_align_up)
+	{
+	  grub_memset (ptr, 0, ALIGN_UP_OVERHEAD (cursize, 4));
+	  ptr += ALIGN_UP_OVERHEAD (cursize, 4);
+	}
       ptr = make_header (ptr, "TRAILER!!!", sizeof ("TRAILER!!!"), 0, 0);
     }
   free_dir (root);
